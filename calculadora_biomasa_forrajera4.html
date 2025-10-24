@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calculadora de Biomasa Forrajera</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f9f9f9; }
+    h1 { text-align: center; color: #2e7d32; }
+    .container { max-width: 500px; margin: auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    label { display: block; margin-top: 10px; }
+    select, input { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 6px; }
+    button { width: 100%; margin-top: 10px; padding: 10px; background-color: #43a047; color: white; border: none; border-radius: 8px; cursor: pointer; }
+    button:hover { background-color: #388e3c; }
+    .result { margin-top: 15px; padding: 10px; background: #e8f5e9; border-radius: 8px; text-align: center; }
+    .calibracion { margin-top: 20px; background: #fff3e0; padding: 15px; border-radius: 10px; }
+    .coords { font-size: 0.9em; color: #444; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Calculadora de Biomasa Forrajera</h1>
+  <div class="container">
+    <label for="altura">Altura promedio (cm)</label>
+    <input type="number" id="altura" placeholder="Ej. 45" />
+
+    <label for="cobertura">Cobertura (%)</label>
+    <input type="number" id="cobertura" placeholder="Ej. 80" />
+
+    <label for="pastura">Tipo de pastura</label>
+    <select id="pastura">
+      <option value="180">Panicum maximum (Tanzania) — Factor: 180</option>
+      <option value="200">Brachiaria brizantha — Factor: 200</option>
+      <option value="150">Leucaena leucocephala — Factor: 150</option>
+      <option value="170">Mezcla gramínea-leguminosa — Factor: 170</option>
+    </select>
+
+    <button onclick="calcularBiomasa()">Calcular biomasa (kg MS/ha)</button>
+    <div id="resultado" class="result"></div>
+
+    <div class="calibracion">
+      <h3>Calibrar factor local</h3>
+      <p>Ingresa entre 3 y 10 muestras reales de campo (altura, cobertura, biomasa medida). Puedes georreferenciar y guardar cada muestra.</p>
+      <div id="muestras"></div>
+      <button onclick="agregarMuestra()">Agregar muestra</button>
+      <button onclick="calibrarFactor()">Calcular factor local</button>
+      <div id="resultadoCalibracion" class="result"></div>
+    </div>
+  </div>
+
+  <script>
+    const scriptURL = 'https://script.google.com/macros/s/AKfycbzH3NTtQYRyHLN5gZj2b7sWaNxgb_tyf2MDy33iHifU6LVtk4z4qYmGeBrr13HylBGU/exec';
+
+    function calcularBiomasa() {
+      const altura = parseFloat(document.getElementById('altura').value);
+      const cobertura = parseFloat(document.getElementById('cobertura').value);
+      const factor = parseFloat(document.getElementById('pastura').value);
+
+      if (isNaN(altura) || isNaN(cobertura)) {
+        document.getElementById('resultado').innerText = 'Por favor ingresa todos los valores.';
+        return;
+      }
+
+      const biomasa = altura * (cobertura / 100) * factor;
+      document.getElementById('resultado').innerHTML = `<strong>Biomasa estimada:</strong> ${biomasa.toFixed(0)} kg MS/ha`;
+    }
+
+    let contador = 0;
+    function agregarMuestra() {
+      if (contador >= 10) return alert('Máximo 10 muestras.');
+      contador++;
+      const div = document.createElement('div');
+      div.classList.add('muestra');
+      div.innerHTML = `
+        <label>Muestra ${contador}</label>
+        <input type='number' placeholder='Altura (cm)' class='alturaM' />
+        <input type='number' placeholder='Cobertura (%)' class='coberturaM' />
+        <input type='number' placeholder='Biomasa real (kg MS/ha)' class='biomasaRealM' />
+        <div class='coords' id='coords${contador}'></div>
+        <button onclick='obtenerUbicacion(${contador})'>📍 Obtener ubicación</button>
+        <button onclick='guardarMuestra(${contador})'>💾 Guardar muestra</button>
+      `;
+      document.getElementById('muestras').appendChild(div);
+    }
+
+    function obtenerUbicacion(id) {
+      if (!navigator.geolocation) {
+        alert('Geolocalización no soportada en este navegador.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude.toFixed(6);
+        const lon = pos.coords.longitude.toFixed(6);
+        document.getElementById(`coords${id}`).innerText = `Lat: ${lat}, Lon: ${lon}`;
+        document.getElementById(`coords${id}`).dataset.lat = lat;
+        document.getElementById(`coords${id}`).dataset.lon = lon;
+      }, () => alert('No se pudo obtener la ubicación.'));
+    }
+
+    async function guardarMuestra(id) {
+      const altura = parseFloat(document.getElementsByClassName('alturaM')[id - 1].value);
+      const cobertura = parseFloat(document.getElementsByClassName('coberturaM')[id - 1].value);
+      const biomasa = parseFloat(document.getElementsByClassName('biomasaRealM')[id - 1].value);
+      const coords = document.getElementById(`coords${id}`);
+      const lat = coords.dataset.lat || '';
+      const lon = coords.dataset.lon || '';
+      const factor = biomasa / (altura * (cobertura / 100));
+      const pasturaSelect = document.getElementById('pastura');
+      const tipoPastura = pasturaSelect.options[pasturaSelect.selectedIndex].text;
+      const fecha = new Date().toLocaleString();
+
+      if (isNaN(altura) || isNaN(cobertura) || isNaN(biomasa)) {
+        alert('Por favor completa los campos numéricos antes de guardar.');
+        return;
+      }
+
+      const data = { altura, cobertura, biomasa, factor, lat, lon, tipoPastura, fecha };
+
+      try {
+        const response = await fetch(scriptURL, {
+          method: 'POST',
+          body: JSON.stringify(data),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (response.ok) {
+          alert('✅ Muestra guardada correctamente.');
+          document.getElementsByClassName('alturaM')[id - 1].value = '';
+          document.getElementsByClassName('coberturaM')[id - 1].value = '';
+          document.getElementsByClassName('biomasaRealM')[id - 1].value = '';
+          document.getElementById(`coords${id}`).innerText = '';
+        } else {
+          alert('Error al guardar la muestra.');
+        }
+      } catch (err) {
+        alert('Error de conexión o permisos.');
+      }
+    }
+
+    function calibrarFactor() {
+      const alturas = Array.from(document.getElementsByClassName('alturaM')).map(i => parseFloat(i.value));
+      const coberturas = Array.from(document.getElementsByClassName('coberturaM')).map(i => parseFloat(i.value));
+      const biomasas = Array.from(document.getElementsByClassName('biomasaRealM')).map(i => parseFloat(i.value));
+
+      let factores = [];
+      for (let i = 0; i < alturas.length; i++) {
+        if (!isNaN(alturas[i]) && !isNaN(coberturas[i]) && !isNaN(biomasas[i])) {
+          const factor = biomasas[i] / (alturas[i] * (coberturas[i] / 100));
+          factores.push(factor);
+        }
+      }
+
+      if (factores.length < 3) {
+        document.getElementById('resultadoCalibracion').innerText = 'Ingresa al menos 3 muestras completas.';
+        return;
+      }
+
+      const promedio = factores.reduce((a,b) => a+b, 0) / factores.length;
+      document.getElementById('resultadoCalibracion').innerHTML = `<strong>Factor local promedio:</strong> ${promedio.toFixed(2)}`;
+    }
+  </script>
+</body>
+</html>
